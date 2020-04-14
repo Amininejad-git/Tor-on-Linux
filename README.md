@@ -1,2 +1,5 @@
 # Tor-on-Linux
-Install Tor on Linux Debian
+
+Very Simple Shell Script for install Tor on Debian Base :)
+
+Beta Version 0.0
