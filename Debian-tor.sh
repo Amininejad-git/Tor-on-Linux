@@ -1,27 +1,97 @@
 #!/bin/bash
-sudo apt update 
-sleep 2
-sudo apt install tor -y &
-sleep 2
-sudo apt install obfs4proxy -y &
-sleep 2
 
-echo " #add bridge
-SocksPolicy accept 192.168.0.0/16
-SocksPort 127.0.0.1:9050
-UseBridges 1
-ClientTransportPlugin obfs4 exec /usr/bin/obfs4proxy
-Bridge obfs4 185.120.77.129:443 3218F7484BD3456A44351F61ED6F71164605EFE3 cert=r78FCpxq/CZIiWQ0k4gnv9J1sBly5vAxOCUHW+I8m9rA8s73lgGHTYFVHaB5f+p1pH6DWg iat-mode=0
-Bridge obfs4 94.242.249.4:9904 E25A95F1DADB739F0A83EB0223A37C02FD519306 cert=j530B23jE9LX81BOl/cqdjaTVMOXSjPDxevcwq6jKVvnDgvQk/4Gsqfmnc8/wAFzAqtRWg iat-mode=0
-Bridge obfs4 50.3.72.238:443 EF870A94B09A90C3C5E3BD6115C33635CDE5D100 cert=u/Q/4VXrf6SbGbBMyApndlDdRh8DWa4HYM6ijjeEI60ZZbfFzcpULJ/VlXxM0o/elsfxEg iat-mode=0 " | tee -a /etc/tor/torrc
-sleep 5
+
+path_config="/home/amini/Projects/Tor-on-Linux/static.conf"
+
+source "${path_config}" 2>/dev/null
+echo "$HTML_FILE"
+
+if [[ $? -ne 0 ]] ; then
+    echo -e "\e[1;31m config file \e[1;32m${path_config} \e[1;31mnot exist"
+    exit 1
+fi
+
+# requirements 
+if [[ ! $(which feh) || ! $(which tor) || ! $(which proxychains4) || ! $(which obfs4proxy) ]]; then
+    echo -e "check that programs are installed: "
+    echo -e "proxychains \nfeh \ntor \nobfs4proxy${nc}"
+    exit 1
+fi
+
+# delete tmp files
+function ClearTmpFiles() {
+    for file in "${HTML_FILE}" "${IMAGE_CAPTCHA_FILE}" "${BridgeFile}"; do
+        if [[ -e "$file" ]]; then
+            rm $file
+        fi
+    done
+}
+
+# get tor bridges from
+function get_tor_bridges(){
+    # get Captcha
+    proxychains4 -q curl -s "$url_bridges" -o "$HTML_FILE"
+
+    # net test
+    [[ -z $(cat "$HTML_FILE" 2>/dev/null) ]] && echo "Error TOR" && exit 0
+
+    # cut base64 Image challenge and convert to image
+    base64 -i -d <<< $(egrep -o "\/9j\/[^\"]*" "$HTML_FILE") > $IMAGE_CAPTCHA_FILE
+
+    # show image captcha security code
+    feh "$IMAGE_CAPTCHA_FILE" &
+    FEH_PID=$!
+
+    # Captcha challenge field ( captcha serial )
+    Cap_Serial=$(grep "value" "$HTML_FILE"|head -n 1 |cut -d\" -f 2)
+
+    # captcha security code
+    while [[ -z $captcha_security_code ]]; do
+        # show your ip
+        echo -ne "${light_magenta}[ $(proxychains4 -q curl -s "$IpSite") ] ${light_blue}"
+
+        # get code from user
+        read -p "enter code (enter 'r' for reset captcha): " captcha_security_code
+
+        # press 'r' for reset captcha
+        if [[ $captcha_security_code == "r" ]]; then
+            # close image captcha security code
+            kill $FEH_PID
+
+            # delete tmp files
+            ClearTmpFiles
+
+            # unset captcha_security_code
+            unset captcha_security_code
+
+            # reset captcha
+            get_tor_bridges
+
+            return
+        fi
+
+        # slove captcha and get Bridges
+        proxychains4 -q curl -s "$url_bridges" \
+        --data "captcha_challenge_field=${Cap_Serial}&captcha_response_field=${captcha_security_code}&submit=submit" -o "$BridgeFile"
+
+        # cut bridges from html file(if code is incorrect bridges file is empty)
+        RES=$(grep "^obfs4" "$BridgeFile"|egrep -o "^[^<]*")
+
+        # if captcha_security_code is correct code save bridges into Variable BRIDGES
+        # if incorrect print error
+        if [[ $(tr -d '\n' <<< "$RES") ]]; then
+            BRIDGES="$(sed 's/^/Bridge /g' <<< "$RES")"
+        else
+            echo -e "${light_yellow}the code entered is incorrect! try again ..${nc}"
+            # for continue while and try again . unset captcha_security_code
+            unset captcha_security_code
+        fi
+    done
+
+    # close image captcha security code
+    kill $FEH_PID
+}
+
+get_tor_bridges
 #systemctl reload tor
-systemctl start tor
 
-echo "  ..............
-..................................
-.............[ TOR IS READY ] ........................
-............................................
-.............................."
-
-exit 0
