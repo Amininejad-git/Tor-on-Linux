@@ -1,7 +1,8 @@
 #!/bin/bash
 
+set -ex 
 
-path_config="/home/amini/Projects/Tor-on-Linux/static.conf"
+path_config="static.conf"
 
 source "${path_config}" 2>/dev/null
 echo "$HTML_FILE"
